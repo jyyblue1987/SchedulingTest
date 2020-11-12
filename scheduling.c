@@ -5,13 +5,17 @@
 #include <stdbool.h>
 
 
-typedef struct process { 
-	int PID;							
-	int	BT;								
-	int AT;							 	
-	int PRI;							
-	int WT,TAT,RPT;						
-	int firstBT;						
+typedef struct process {
+	int PID;		
+	int BT;
+	int IOT;							
+	int AT;								
+	int PRI;	
+	int CPU_TIME;	
+	int state; // 0: not start, // 1: first running, // 2: blocking // 3: 2nd running, // 4: done					
+	int WT,TAT,RPT, RPT2;						
+	int firstBT;	
+	int order;				
 	bool done;							
 }pc;
 
@@ -53,28 +57,30 @@ int main(int argc, char *argv[]) {
 	}							
 	fclose(fp);
 	
-	for(i = 1 ; i<count ; i++)
+	for(i = 3 ; i<count ; i++)
 	{ 
-		cont[i-2] = buff[i];
+		cont[i-3] = buff[i];
 	}
-                                             
-	token = strtok(cont, delimit);
+
+	numOfPro = buff[0] - '0';                                         	
+	struct process p[numOfPro];
+	i = 0;
+
+	token = strtok(cont, delimit);	
 	while(token != NULL) 
 	{
 		data[o] = atoi(token);
+		sscanf(token, "%d %d %d %d", &(p[i].PID), &(p[i].BT), &(p[i].IOT), &(p[i].AT));
 		token = strtok(NULL, delimit);
-		o++;
+		i++;
 	}	
 	
-	numOfPro = buff[0] - '0';
-    struct process p[numOfPro];			
-    *p = createProcess(numOfPro,p,data);
     
     printf("===========================\n");
     printf("PID\tBT\tAT\tPRI\n");
 	for (i = 0 ; i<numOfPro ; i++)
 	{
-		printf("%d\t%d\t%d\t%d\n", p[i].PID, p[i].BT, p[i].AT, p[i].PRI);
+		printf("%d\t%d\t%d\t%d\n", p[i].PID, p[i].BT, p[i].IOT, p[i].AT);
 	}
 	printf("===========================\n");
 	printf("\t  OUTPUT");
@@ -94,7 +100,7 @@ int main(int argc, char *argv[]) {
 	{
 		if(strcmp(str1, choice) == 0 )
 		{
-			printf("\nFCFS: ");
+			printf("\nFCFS:\n");
 			FCFS(p,numOfPro);
 		}	
 		else if(strcmp(str2, choice) == 0 )
@@ -289,8 +295,144 @@ void FCFS(pc p[], int n)
 	double sumRPT = 0, sumWT = 0, sumTAT = 0 , sTP = 0 , TP = 0; 
 	double avgRPT = 0, avgWT = 0, avgTAT = 0;
 	int i,j;
-	
-	sort_AT_FCFS(p,n);
+
+	int c = 0; // cycle
+	int selected_id = -1;
+	bool all_done = false;
+	int cpu_time = 0;
+	int index = 0;
+	// 0: not start, 
+	// 1: first running, 
+	// 2: blocking 
+	// 3: 2nd running, 
+	// 4: done					
+	// init ready time
+	for(i = 0; i < n; i++)
+	{
+		p[i].RPT = p[i].AT;
+		p[i].state = 0;		
+		p[i].order = i;
+		p[i].CPU_TIME = p[i].BT / 2;
+	}
+
+	while(true)
+	{
+		// check all is done
+		bool all_done = true;
+		for(i = 0; i < n; i++)
+		{
+			if( p[i].state != 4 )
+			{				
+				all_done = false;
+				break;
+			}
+		}
+
+		if( all_done )
+			break;
+
+		// selected id
+		if( selected_id < 0 )
+		{
+			for(i = 0; i < n; i++)
+			{
+				if(p[i].RPT <= c)
+				{
+					p[i].RPT = c;
+					selected_id = p[i].PID;
+					if( p[i].state == 0 )
+						p[i].state = 1; // running
+					if( p[i].state == 2 )
+						p[i].state = 3; // running
+					break;
+				}
+			}
+		}
+		
+		if( selected_id < 0 )					
+		{
+			c++;
+			continue;
+		}
+
+		// change selected pid state
+		index = -1;
+		for(i = 0; i < n; i++)
+		{
+			if(p[i].PID == selected_id)
+			{
+				if( c - p[i].RPT >= p[i].CPU_TIME)
+				{
+					if( p[i].state == 1 ) // 1st running
+					{
+						p[i].RPT = p[i].RPT + p[i].CPU_TIME + p[i].IOT;	
+						p[i].state = 2;		
+						selected_id = -1;											
+					}
+					if( p[i].state == 3 )	// 2nd running
+					{
+						p[i].state = 4;	
+						selected_id = -1;																								
+					}
+				}
+			}
+		}
+
+		// output state
+		printf("%d", c);
+		for(i = 0; i < n; i++)
+		{		
+			if( p[i].state == 0 )	// not started
+			{
+				if( c < p[i].RPT )	
+					continue;
+				else
+				{				
+					if( selected_id < 0 )
+					{
+						selected_id = p[i].PID;
+						p[i].state = 1;
+						printf(" %d: running", p[i].PID);
+					}
+					else		
+						printf(" %d: ready", p[i].PID);
+				}
+			}
+
+			if( p[i].state == 1 || p[i].state == 3 )	// running
+			{
+				if( c < p[i].RPT )	
+					continue;
+				else
+				{						
+					printf(" %d: running", p[i].PID);
+				}
+			}
+
+			if( p[i].state == 2 ) // blocked
+			{
+				if( c < p[i].RPT )
+					printf(" %d: blocked", p[i].PID);
+				else
+				{
+					if( selected_id < 0 )
+					{
+						// Add on end of Queue						
+						printf(" %d: running", p[i].PID);	
+						selected_id = p[i].PID;
+						p[i].state = 3;					
+					}
+					else
+						printf(" %d: ready", p[i].PID);
+				}
+			} 
+			
+		}
+
+		printf("\n");
+
+		c++;
+	}
 	
 	for(i = 0 ; i < n ; i++)
 	{
